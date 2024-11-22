@@ -1,5 +1,5 @@
-import express from 'express';
+import { Router } from 'express';
 import documentRouter from './documentRoutes';
-const router = express.Router();
+const router = Router();
 router.use('/document', documentRouter);
 export default router;
