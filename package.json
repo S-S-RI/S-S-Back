@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "server.ts",
   "scripts": {
-    "start": "node dist/server.ts", 
+    "start": "node dist/server.ts",
     "build": "tsc",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts"
   },
@@ -12,9 +12,15 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "axios": "^1.7.7",
     "cors": "^2.8.5",
+    "cron": "^3.2.1",
     "dotenv": "^16.4.5",
-    "express": "^4.21.1"
+    "express": "^4.21.1",
+    "mongodb": "^6.11.0",
+    "mongoose": "^8.8.2",
+    "nodemailer": "^6.9.16",
+    "url": "^0.11.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
