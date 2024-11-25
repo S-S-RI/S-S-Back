@@ -22,7 +22,8 @@
     "mongoose": "^8.8.2",
     "nodemailer": "^6.9.16",
     "projectriback": "file:",
-    "url": "^0.11.4"
+    "url": "^0.11.4",
+    "wordnet": "^2.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
