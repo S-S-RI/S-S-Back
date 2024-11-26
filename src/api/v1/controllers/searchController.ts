@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import * as wordnet from 'wordnet';
+// import * as wordnet from 'wordnet';
 import findCollocation from '../utils/collocation';
 const stopWords = [
   'a',
@@ -99,18 +99,18 @@ const searchController = {
 
     processedWords = [...new Set(processedWords)];
 
-    await wordnet.init();
+    // await wordnet.init();
 
-    const themes = [];
-    for (const word of processedWords) {
-      const synsets = await wordnet.lookup(word);
+    // const themes = [];
+    // for (const word of processedWords) {
+    //   const synsets = await wordnet.lookup(word);
 
-      for (const synset of synsets) {
-        themes.push(synset.glossary);
-      }
-    }
+    //   for (const synset of synsets) {
+    //     themes.push(synset.glossary);
+    //   }
+    // }
 
-    res.status(200).json({ processedWords, themes });
+    res.status(200).json({ processedWords });
   },
 };
 
