@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 // import * as wordnet from 'wordnet';
 import findCollocation from '../utils/collocation';
+import { getDomainsForWord } from '../utils/wordnetHelper';
 const stopWords = [
   'a',
   'an',
@@ -99,18 +100,16 @@ const searchController = {
 
     processedWords = [...new Set(processedWords)];
 
-    // await wordnet.init();
+    const themes = [];
+    for (const word of processedWords) {
+      const synsets = await getDomainsForWord(word);
+      const filteredSynsets = synsets.filter((domain) => {
+        return !domain.includes('factotum');
+      });
+      themes.push(filteredSynsets);
+    }
 
-    // const themes = [];
-    // for (const word of processedWords) {
-    //   const synsets = await wordnet.lookup(word);
-
-    //   for (const synset of synsets) {
-    //     themes.push(synset.glossary);
-    //   }
-    // }
-
-    res.status(200).json({ processedWords });
+    res.status(200).json({ processedWords, themes });
   },
 };
 
