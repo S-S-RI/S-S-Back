@@ -6,7 +6,8 @@ import { Document } from '../models/documentSchema';
 import { StopList } from '../models/stoplistSchema';
 import { Collocation } from '../models/collocationSchema';
 import { getDomainsForWord } from '../utils/wordnetHelper';
-
+import redis from '../../database/redis';
+import { invalidateCache, setCache } from '../utils/cache';
 const wordNet = new WordNet();
 
 const searchController = {
@@ -15,11 +16,31 @@ const searchController = {
       const { phrase } = req.body;
 
       // Step 1: Fetch dynamic stop words and collocations from the database
-      const stopWords = await StopList.find().select('content');
-      const stopWordsList = stopWords.map((stopWord) => stopWord.content.toLowerCase());
+      let stopWordsList: string[] = [];
+      const cachedstopWords = await redis.get('stopwords:all');
+      if (!cachedstopWords) {
+        const stopWords = await StopList.find().select('content');
+        const stopWordsListLowerCase = stopWords.map((stopWord) =>
+          stopWord.content.toLowerCase()
+        );
+        setCache('stopwords:all', stopWordsListLowerCase);
+        stopWordsList = stopWordsListLowerCase;
+      } else {
+        stopWordsList = JSON.parse(cachedstopWords);
+      }
 
-      const collocations = await Collocation.find().select('content');
-      const collocationsList = collocations.map((collocation) => collocation.content.toLowerCase());
+      let collocationsList: string[] = [];
+      const cachedcollocations = await redis.get('cachedcollocations:all');
+      if (!cachedcollocations) {
+        const collocations = await Collocation.find().select('content');
+        const collocationsListLowerCase = collocations.map((collocation) =>
+          collocation.content.toLowerCase()
+        );
+        setCache('cachedcollocations:all', collocationsListLowerCase);
+        collocationsList = collocationsListLowerCase;
+      } else {
+        collocationsList = JSON.parse(cachedcollocations);
+      }
 
       // Step 2: Preprocess the phrase
       let words = phrase
@@ -56,7 +77,7 @@ const searchController = {
       }
 
       processedWords = [...new Set(processedWords)];
-      console.log("Processed Words:", processedWords); 
+      console.log('Processed Words:', processedWords);
 
       // Step 4: Use WordNet to identify related concepts
       const themes = [];
@@ -69,19 +90,21 @@ const searchController = {
       }
 
       // Step 5: Fetch documents dynamically from the database
-      const documents = await Document.find().select('content'); 
+      const documents = await Document.find().select('content');
 
       // Convert the documents to the required format (array of string arrays)
       const docs = documents.map((doc: any) => doc.content.split(' '));
 
       // Step 6: Compute TF-IDF scores
       const tfidfScores = computeTFIDF(docs, processedWords);
-      console.log("TF-IDF Scores:", tfidfScores); 
+      console.log('TF-IDF Scores:', tfidfScores);
 
       res.status(200).json({ processedWords, themes, tfidfScores });
     } catch (error) {
       console.error('Error in searchDocuments:', error);
-      res.status(500).json({ error: 'An error occurred while processing the text.' });
+      res
+        .status(500)
+        .json({ error: 'An error occurred while processing the text.' });
     }
   },
 };
