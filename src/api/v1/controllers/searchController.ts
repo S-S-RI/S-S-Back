@@ -1,115 +1,88 @@
 import { Request, Response } from 'express';
-// import * as wordnet from 'wordnet';
+import { WordNet } from 'natural';
 import findCollocation from '../utils/collocation';
+import { computeTFIDF } from '../utils/tfidfCalculator';
+import { Document } from '../models/documentSchema';
+import { StopList } from '../models/stoplistSchema';
+import { Collocation } from '../models/collocationSchema';
 import { getDomainsForWord } from '../utils/wordnetHelper';
-const stopWords = [
-  'a',
-  'an',
-  'and',
-  'are',
-  'as',
-  'at',
-  'be',
-  'by',
-  'for',
-  'from',
-  'has',
-  'he',
-  'in',
-  'is',
-  'it',
-  'its',
-  'of',
-  'on',
-  'that',
-  'the',
-  'to',
-  'was',
-  'were',
-  'will',
-  'with',
-  'this',
-];
 
-const collocations = [
-  'strong coffee',
-  'heavy rain',
-  'fast food',
-  'hard work',
-  'high price',
+const wordNet = new WordNet();
 
-  'academic achievement',
-  'cognitive ability',
-  'critical analysis',
-  'cultural diversity',
-  'economic growth',
-  'global warming',
-  'human rights',
-  'social justice',
-  'sustainable development',
-  'technological advancement',
-
-  'artificial intelligence',
-  'artificial intelligence in medecine',
-  'artificial human hand',
-  'machine learning',
-  'data science',
-  'deep learning',
-  'natural language processing',
-  'computer vision',
-  'cybersecurity',
-  'cloud computing',
-  'internet of things',
-  'big data',
-];
 const searchController = {
   async searchDocuments(req: Request, res: Response) {
-    const { phrase } = req.body;
+    try {
+      const { phrase } = req.body;
 
-    let words = phrase
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .split(' ');
+      // Step 1: Fetch dynamic stop words and collocations from the database
+      const stopWords = await StopList.find().select('content');
+      const stopWordsList = stopWords.map((stopWord) => stopWord.content.toLowerCase());
 
-    let usedIndices = new Set<number>();
-    let processedWords: string[] = [];
+      const collocations = await Collocation.find().select('content');
+      const collocationsList = collocations.map((collocation) => collocation.content.toLowerCase());
 
-    for (let i = 0; i < words.length; i++) {
-      if (usedIndices.has(i)) continue;
+      // Step 2: Preprocess the phrase
+      let words = phrase
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(' ');
 
-      const word = words[i];
-      const result = findCollocation(
-        word,
-        words,
-        collocations.sort((a, b) => b.length - a.length)
-      );
+      let usedIndices = new Set<number>();
+      let processedWords: string[] = [];
 
-      if (result && result.includes(' ')) {
-        processedWords.push(result);
-        const collocationLength = result.split(' ').length;
-        for (let j = 0; j < collocationLength; j++) {
-          usedIndices.add(i + j);
+      // Step 3: Identify collocations
+      for (let i = 0; i < words.length; i++) {
+        if (usedIndices.has(i)) continue;
+
+        const word = words[i];
+        const result = findCollocation(
+          word,
+          words,
+          collocationsList.sort((a, b) => b.length - a.length)
+        );
+
+        if (result && result.includes(' ')) {
+          processedWords.push(result);
+          const collocationLength = result.split(' ').length;
+          for (let j = 0; j < collocationLength; j++) {
+            usedIndices.add(i + j);
+          }
+        } else if (!stopWordsList.includes(word)) {
+          processedWords.push(word);
         }
-      } else if (!stopWords.includes(word)) {
-        processedWords.push(word);
       }
+
+      processedWords = [...new Set(processedWords)];
+      console.log("Processed Words:", processedWords); 
+
+      // Step 4: Use WordNet to identify related concepts
+      const themes = [];
+      for (const word of processedWords) {
+        const synsets = await getDomainsForWord(word);
+        const filteredSynsets = synsets.filter((domain) => {
+          return !domain.includes('factotum');
+        });
+        themes.push(filteredSynsets);
+      }
+
+      // Step 5: Fetch documents dynamically from the database
+      const documents = await Document.find().select('content'); 
+
+      // Convert the documents to the required format (array of string arrays)
+      const docs = documents.map((doc: any) => doc.content.split(' '));
+
+      // Step 6: Compute TF-IDF scores
+      const tfidfScores = computeTFIDF(docs, processedWords);
+      console.log("TF-IDF Scores:", tfidfScores); 
+
+      res.status(200).json({ processedWords, themes, tfidfScores });
+    } catch (error) {
+      console.error('Error in searchDocuments:', error);
+      res.status(500).json({ error: 'An error occurred while processing the text.' });
     }
-
-    processedWords = [...new Set(processedWords)];
-
-    const themes = [];
-    for (const word of processedWords) {
-      const synsets = await getDomainsForWord(word);
-      const filteredSynsets = synsets.filter((domain) => {
-        return !domain.includes('factotum');
-      });
-      themes.push(filteredSynsets);
-    }
-
-    res.status(200).json({ processedWords, themes });
   },
 };
 
