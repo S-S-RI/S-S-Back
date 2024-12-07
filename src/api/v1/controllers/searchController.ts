@@ -8,8 +8,8 @@ import { Collocation } from '../models/collocationSchema';
 import { getDomainsForWord } from '../utils/wordnetHelper';
 import redis from '../../database/redis';
 import { invalidateCache, setCache } from '../utils/cache';
-
 const wordNet = new WordNet();
+
 const searchController = {
   async searchDocuments(req: Request, res: Response) {
     try {
@@ -79,46 +79,27 @@ const searchController = {
       processedWords = [...new Set(processedWords)];
       console.log('Processed Words:', processedWords);
 
-      // Step 4: Fetch documents from the database
-      const documents = await Document.find().select('content');
-      const docs = documents.map((doc: any) => doc.content);
+      // Step 4: Use WordNet to identify related concepts
+      const themes = [];
+      for (const word of processedWords) {
+        const synsets = await getDomainsForWord(word);
+        const filteredSynsets = synsets.filter((domain) => {
+          return !domain.includes('factotum');
+        });
+        themes.push(filteredSynsets);
+      }
 
-      // Step 5: Compute TF-IDF for all terms in the documents
-      const tfidfScores = computeTFIDF(docs.map((doc) => doc.split(' ')), processedWords);
+      // Step 5: Fetch documents dynamically from the database
+      const documents = await Document.find().select('content');
+
+      // Convert the documents to the required format (array of string arrays)
+      const docs = documents.map((doc: any) => doc.content.split(' '));
+
+      // Step 6: Compute TF-IDF scores
+      const tfidfScores = computeTFIDF(docs, processedWords);
       console.log('TF-IDF Scores:', tfidfScores);
 
-      // Step 6: Build Inverted Index with Document Count and TF-IDF Scores
-      const invertedIndex: {
-        [word: string]: { docIndex: number; tfidf: number }[];
-      } = {};
-
-      const documentCount: { [word: string]: number } = {};
-
-      processedWords.forEach((word) => {
-        documents.forEach((doc, docIndex) => {
-          const docWords = doc.content.toLowerCase().split(/\s+/).map((word: string) => word.replace(/[^\w]/g, ''));
-          if (docWords.includes(word)) {
-            if (!invertedIndex[word]) {
-              invertedIndex[word] = [];
-            }
-            invertedIndex[word].push({
-              docIndex,
-              tfidf: tfidfScores[word] || 0,
-            });
-            documentCount[word] = (documentCount[word] || 0) + 1;
-          }
-        });
-      });
-
-      console.log('Inverted Index:', invertedIndex);
-      console.log('Document Count:', documentCount);
-
-      res.status(200).json({
-        processedWords,
-        tfidfScores,
-        invertedIndex,
-        documentCount,
-      });
+      res.status(200).json({ processedWords, themes, tfidfScores });
     } catch (error) {
       console.error('Error in searchDocuments:', error);
       res

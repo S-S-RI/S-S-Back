@@ -13,7 +13,7 @@ export function computeTF(doc: Document, term: string): number {
 export function computeIDF(docs: Document[], term: string): number {
   const numDocsWithTerm = docs.filter((doc) => doc.includes(term)).length;
   // IDF formula: log(Number of docs / (1 + number of docs containing the term))
-  return Math.log(docs.length / (1 + numDocsWithTerm));
+  return Math.log10(docs.length / (1 + numDocsWithTerm));
 }
 
 // Compute the TF-IDF score for each term in the processedWords array
