@@ -3,7 +3,7 @@ import { Document } from "../models/documentSchema";
 import Fuse from "fuse.js";
 export const addDocument = async (req: Request, res: Response): Promise<void> => {
   try {
-    const {  content } = req.body;
+    const {  content} = req.body;
     if (!content) {
       res.status(400).json({ message: "content is required." });
       return;
@@ -26,27 +26,7 @@ export const getAllDocuments = async (req: Request, res: Response): Promise<void
       res.status(500).json({ message: "Internal server error" });
     }
   };
-export const searchDocuments = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { query } = req.body;
-  
-      if (!query || typeof query !== "string") {
-        res.status(400).json({ message: "Search query is required." });
-        return;
-      }
-      const documents = await Document.find();
-      const fuse = new Fuse(documents, {
-        keys: ["content"], 
-        threshold: 0.5,    
-      });
-      const results = fuse.search(query);
-      const matchedDocuments = results.map(result => result.item);
-      res.status(200).json({ documents: matchedDocuments });
-    } catch (error) {
-      console.error("Error searching documents:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  };
+
   export const modifyDocument = async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
@@ -105,5 +85,25 @@ export const searchDocuments = async (req: Request, res: Response): Promise<void
     } catch (error) {
       console.error("Error deleting document:", error);
       res.status(500).json({ message: "Internal server error." });
+    }
+    
+  };
+  export const addNameFieldToDocuments = async (): Promise<void> => {
+    try {
+      const documents = await Document.find();
+  
+      
+      for (let index = 0; index < documents.length; index++) {
+        const document = documents[index];
+        const name = `doc${index + 1}`; 
+  
+        
+        document.name = name;
+        await document.save(); 
+      }
+  
+      console.log("All documents have been updated with a name field.");
+    } catch (error) {
+      console.error("Error updating documents:", error);
     }
   };

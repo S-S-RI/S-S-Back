@@ -8,18 +8,23 @@ import { setCache } from '../utils/cache';
 function normalizeText(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^\w\s]/g, '') // Remove non-word characters
-    .split(/\s+/); // Split by whitespace
+    .replace(/[^\w\s]/g, '') 
+    .split(/\s+/); 
 }
 
 function computeTF(doc: string[], term: string): number {
   const termCount = doc.filter((word) => word === term).length;
-  return termCount / doc.length;
+  const termFrequencies = doc.reduce((freqs, word) => {
+    freqs[word] = (freqs[word] || 0) + 1;
+    return freqs;
+  }, {} as Record<string, number>);
+  const maxFreq = Math.max(...Object.values(termFrequencies));
+  return maxFreq > 0 ? termCount / maxFreq : 0; 
 }
 
 function computeIDF(docs: string[][], term: string): number {
   const numDocsWithTerm = docs.filter((doc) => doc.includes(term)).length;
-  return Math.log10(docs.length / (1 + numDocsWithTerm)); // +1 to avoid division by zero
+  return Math.log10(docs.length / (numDocsWithTerm)); 
 }
 
 async function getStopWords(): Promise<string[]> {
@@ -70,7 +75,6 @@ async function buildInvertedIndex(): Promise<void> {
 
         const word = words[i];
 
-        // Skip numbers
         if (!isNaN(Number(word))) continue;
 
         const possibleCollocation = collocationsList.find((collocation) =>
@@ -95,10 +99,10 @@ async function buildInvertedIndex(): Promise<void> {
 
       console.log(`Processed ${processedWords.length} words for document ${name}.`);
 
-      // Now use computeTF to calculate term frequency for each word
+
       const termFrequencies: { [word: string]: number } = {};
       processedWords.forEach((word) => {
-        termFrequencies[word] = computeTF(processedWords, word); // Use computeTF here
+        termFrequencies[word] = computeTF(processedWords, word);
       });
 
       Object.entries(termFrequencies).forEach(([term, tf]) => {
@@ -131,7 +135,7 @@ async function buildInvertedIndex(): Promise<void> {
       },
     }));
 
-    // Bulk write execution with error handling
+  
     try {
       console.log(`Executing ${bulkOps.length} bulk operations...`);
       await InvertedIndex.bulkWrite(bulkOps);
@@ -149,21 +153,20 @@ export default buildInvertedIndex;
 
 async function getTermsFromDB() {
     try {
-      // Fetch all terms from the database
       const terms = await InvertedIndex.find().select('term documentFrequency postings');
       console.log('Retrieved terms from database:', terms);
   
-      // Format the terms for easy consumption if needed
+      
       const formattedTerms = terms.map((term) => ({
         term: term.term,
         documentFrequency: term.documentFrequency,
         postings: term.postings,
       }));
   
-      return formattedTerms; // Return the retrieved terms
+      return formattedTerms; 
     } catch (error) {
       console.error('Error retrieving terms from database:', error);
-      throw error; // Re-throw the error for higher-level handling
+      throw error; 
     }
   }
   

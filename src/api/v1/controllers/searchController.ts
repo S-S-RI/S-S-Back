@@ -9,12 +9,15 @@ import { getDomainsForWord } from '../utils/wordnetHelper';
 import redis from '../../database/redis';
 import { invalidateCache, setCache } from '../utils/cache';
 import { InvertedIndex } from '../models/invertedIndexSchema';
+import { ObjectId } from 'mongodb';
 
 const wordNet = new WordNet();
 
 const searchController = {
   async searchDocuments(req: Request, res: Response) {
     try {
+
+
       const { phrase } = req.body;
 
       // Step 1: Fetch dynamic stop words and collocations from the database
@@ -78,7 +81,6 @@ const searchController = {
         }
       }
 
-      processedWords = [...new Set(processedWords)];
       console.log('Processed Words:', processedWords);
 
       // Step 4: Use WordNet to identify related concepts
@@ -92,54 +94,58 @@ const searchController = {
       }
 
       // Step 5: Fetch documents dynamically from the database
-      const documents = await Document.find().select('content name');
-
-      // Convert the documents to the required format (array of string arrays)
-      const docs = documents.map((doc: any) => doc.content.split(' '));
-
-      // Step 6: Compute TF-IDF scores for documents
-      const tfidfScores = computeTFIDF(docs, processedWords);
-      console.log('TF-IDF Scores:', tfidfScores);
-
-      // Step 7: Calculate dot product for ranking
-      async function calculateDotProduct(query: string[], documentId: string, documentContent: string[]): Promise<number> {
-        let dotProduct = 0;
+      const documents = await Document.find({
+        content: { $regex: processedWords.join('|'), $options: 'i' }
+      }).select('content');
       
-        console.log('Calculating dot product for document:', documentId);
+
+      // Step 6: Calculate  produit scalaire 
+      async function calculateProduitScalaire(query: string[], documentId: string): Promise<number> {
+        let ProduitScalaire = 0;
       
         for (let word of query) {
           const queryTF = query.filter((w) => w === word).length / query.length;
-      
-          console.log(`Word: ${word}, Query Term Frequency: ${queryTF}`);
-      
           const termData = await getTermDataFromInvertedIndex(word);
       
-          if (!termData || termData.length === 0) {
-            console.log(`No term data found for word: ${word}`);
-            continue;
-          }
-      
-          const docPosting = termData.find(
-            (posting) => posting._id.toString() === documentId  // Compare _id here
-          );
-      
-          if (!docPosting) {
-            console.log(`Word: ${word}, no posting found for document: ${documentId}`);
-            continue;
-          }
-      
-          console.log(`Word: ${word}, Document TF-IDF: ${docPosting.tfidf}`);
-      
-          dotProduct += queryTF * docPosting.tfidf;
-        }
-      
-        console.log(`Dot product for document (${documentId}): ${dotProduct}`);
-        return dotProduct;
-      }
+           console.log("hey term data are:",termData)
+termData.forEach((posting) => {
+  console.log('posting id',posting,typeof posting._id)
+})
+console.log('the DOCN IDDDDDDDEDE',new ObjectId(documentId))
+
+const document = await Document.findById(documentId);
+    if (!document) {
+      console.error(`Document not found for ID: ${documentId}`);
+      continue;
+    }
+    const documentName = document.name; 
+    console.log("Document name:", documentName);
+
+    
+    const docPosting = termData.find(
+      (posting) => posting.documentName === documentName
+    );
+
+    if (!docPosting) {
+      console.log(
+        `Word: ${word}, no posting found for document: ${documentId}`
+      );
+      continue;
+    }
+
+    console.log(`Word: ${word}, Document TF-IDF: ${docPosting.tfidf}`);
+
+
+    ProduitScalaire += queryTF * docPosting.tfidf;
+  }
+
+  console.log(`Dot product for document (${documentId}): ${ProduitScalaire}`);
+  return ProduitScalaire;
+}
 
 async function getTermDataFromInvertedIndex(term: string) {
   console.log(`Fetching term data for word: ${term}`);
-  const termData = await InvertedIndex.findOne({ term });
+  const termData = await InvertedIndex.findOne({ term : term});
   if (!termData) {
     console.log(`No data found for term: ${term}`);
   } else {
@@ -147,18 +153,19 @@ async function getTermDataFromInvertedIndex(term: string) {
   }
   return termData ? termData.postings : [];
 }
-// Step 8: Rank documents based on dot product
+// Step 7: Rank documents 
 const rankedDocuments = [];
 for (let doc of documents) {
-  const dotProduct = await calculateDotProduct(
+  const ProduitScalaire = await calculateProduitScalaire(
     processedWords,
-    doc._id.toString(),  // Using _id instead of name
-    doc.content.split(' ')
+    doc._id.toString(),  
   );
-  rankedDocuments.push({ document: doc, dotProduct });
+  if (ProduitScalaire != 0){
+    rankedDocuments.push({ document: doc, ProduitScalaire });
+  }
 }
 
-rankedDocuments.sort((a, b) => b.dotProduct - a.dotProduct);
+rankedDocuments.sort((a, b) => b.ProduitScalaire - a.ProduitScalaire);
 
 res.status(200).json({
   processedWords,
