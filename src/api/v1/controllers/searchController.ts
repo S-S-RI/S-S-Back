@@ -102,23 +102,15 @@ const searchController = {
       // Step 6: Calculate  produit scalaire 
       async function calculateProduitScalaire(query: string[], documentId: string): Promise<number> {
         let ProduitScalaire = 0;
-      
         for (let word of query) {
           const queryTF = query.filter((w) => w === word).length / query.length;
           const termData = await getTermDataFromInvertedIndex(word);
-      
-           console.log("hey term data are:",termData)
-termData.forEach((posting) => {
-  console.log('posting id',posting,typeof posting._id)
-})
-console.log('the DOCN IDDDDDDDEDE',new ObjectId(documentId))
-
-const document = await Document.findById(documentId);
-    if (!document) {
-      console.error(`Document not found for ID: ${documentId}`);
-      continue;
-    }
-    const documentName = document.name; 
+        const document = await Document.findById(documentId);
+        if (!document) {
+       console.error(`Document not found for ID: ${documentId}`);
+        continue;
+      }
+       const documentName = document.name; 
     console.log("Document name:", documentName);
 
     
