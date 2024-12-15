@@ -1,16 +1,7 @@
 import { InvertedIndex } from '../models/invertedIndexSchema';
-import { StopList } from '../models/stoplistSchema';
-import { Collocation } from '../models/collocationSchema';
 import { Document } from '../models/documentSchema';
-import redis from '../../database/redis';
-import { setCache } from '../utils/cache';
-
-function normalizeText(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s]/g, '') 
-    .split(/\s+/); 
-}
+import { normaliserEtLemmatiser } from '../utils/normaliser';
+import getCollocationsandStopWords from '../utils/getCollocationsandStopWords';
 
 function computeTF(doc: string[], term: string): number {
   const termCount = doc.filter((word) => word === term).length;
@@ -19,32 +10,12 @@ function computeTF(doc: string[], term: string): number {
     return freqs;
   }, {} as Record<string, number>);
   const maxFreq = Math.max(...Object.values(termFrequencies));
-  return maxFreq > 0 ? termCount / maxFreq : 0; 
+  return maxFreq > 0 ? termCount / maxFreq : 0;
 }
 
 function computeIDF(docs: string[][], term: string): number {
   const numDocsWithTerm = docs.filter((doc) => doc.includes(term)).length;
-  return Math.log10(docs.length / (numDocsWithTerm)); 
-}
-
-async function getStopWords(): Promise<string[]> {
-  const cachedStopWords = await redis.get('stopwords:all');
-  if (cachedStopWords) return JSON.parse(cachedStopWords);
-
-  const stopWords = await StopList.find().select('content');
-  const stopWordsList = stopWords.map((sw) => sw.content.toLowerCase());
-  await setCache('stopwords:all', stopWordsList);
-  return stopWordsList;
-}
-
-async function getCollocations(): Promise<string[]> {
-  const cachedCollocations = await redis.get('collocations:all');
-  if (cachedCollocations) return JSON.parse(cachedCollocations);
-
-  const collocations = await Collocation.find().select('content');
-  const collocationsList = collocations.map((c) => c.content.toLowerCase());
-  await setCache('collocations:all', collocationsList);
-  return collocationsList;
+  return Math.log10(docs.length / numDocsWithTerm);
 }
 
 async function buildInvertedIndex(): Promise<void> {
@@ -52,8 +23,8 @@ async function buildInvertedIndex(): Promise<void> {
     console.log('Starting to build the inverted index with TF-IDF...');
 
     const exampleDocuments = await Document.find();
-    const stopWordsList = await getStopWords();
-    const collocationsList = await getCollocations();
+    const [collocationsList, stopWordsList] =
+      await getCollocationsandStopWords();
 
     const invertedIndex: {
       [term: string]: {
@@ -62,13 +33,16 @@ async function buildInvertedIndex(): Promise<void> {
       };
     } = {};
 
-    exampleDocuments.forEach((doc, index) => {
+    for (const [index, doc] of exampleDocuments.entries()) {
       const { content } = doc;
       const name = `doc${index + 1}`;
-      const words = normalizeText(content);
+      console.log('Before lemmatization:', content);
+
+      const words = await normaliserEtLemmatiser(content);
+      console.log('After lemmatization:', words);
 
       const processedWords: string[] = [];
-      const usedIndices = new Set();
+      const usedIndices = new Set<number>();
 
       for (let i = 0; i < words.length; i++) {
         if (usedIndices.has(i)) continue;
@@ -77,9 +51,11 @@ async function buildInvertedIndex(): Promise<void> {
 
         if (!isNaN(Number(word))) continue;
 
-        const possibleCollocation = collocationsList.find((collocation) =>
-          collocation.startsWith(word) &&
-          words.slice(i, i + collocation.split(' ').length).join(' ') === collocation
+        const possibleCollocation = collocationsList.find(
+          (collocation) =>
+            collocation.startsWith(word) &&
+            words.slice(i, i + collocation.split(' ').length).join(' ') ===
+              collocation
         );
 
         if (possibleCollocation) {
@@ -89,16 +65,13 @@ async function buildInvertedIndex(): Promise<void> {
             usedIndices.add(i + j);
           }
         } else if (!stopWordsList.includes(word)) {
-          const processedWord =
-            word.endsWith('s') && word.length > 1 && !collocationsList.some((colloc) => colloc.includes(word))
-              ? word.slice(0, -1)
-              : word;
-          processedWords.push(String(processedWord)); 
+          processedWords.push(String(word));
         }
       }
 
-      console.log(`Processed ${processedWords.length} words for document ${name}.`);
-
+      console.log(
+        `Processed ${processedWords.length} words for document ${name}.`
+      );
 
       const termFrequencies: { [word: string]: number } = {};
       processedWords.forEach((word) => {
@@ -113,14 +86,20 @@ async function buildInvertedIndex(): Promise<void> {
         termEntry.documentFrequency += 1;
         termEntry.postings.push({ documentName: name, tf, tfidf: 0 });
       });
-    });
+    }
 
-    console.log('Finished processing all documents. Computing IDF values and TF-IDF scores...');
-    Object.entries(invertedIndex).forEach(([term, data]) => {
+    console.log(
+      'Finished processing all documents. Computing IDF values and TF-IDF scores...'
+    );
+
+    Object.entries(invertedIndex).forEach(async ([term, data]) => {
       const idf = computeIDF(
-        exampleDocuments.map((doc) => normalizeText(doc.content)),
+        await Promise.all(
+          exampleDocuments.map((doc) => normaliserEtLemmatiser(doc.content))
+        ),
         term
       );
+
       data.postings.forEach((posting) => {
         posting.tfidf = parseFloat((posting.tf * idf).toFixed(4));
       });
@@ -130,18 +109,22 @@ async function buildInvertedIndex(): Promise<void> {
     const bulkOps = Object.entries(invertedIndex).map(([term, data]) => ({
       updateOne: {
         filter: { term },
-        update: { $set: { documentFrequency: data.documentFrequency, postings: data.postings } },
+        update: {
+          $set: {
+            documentFrequency: data.documentFrequency,
+            postings: data.postings,
+          },
+        },
         upsert: true,
       },
     }));
 
-  
-    try {
-      console.log(`Executing ${bulkOps.length} bulk operations...`);
+    console.log(`Executing ${bulkOps.length} bulk operations...`);
+    if (bulkOps.length > 0) {
       await InvertedIndex.bulkWrite(bulkOps);
       console.log('Inverted index saved successfully!');
-    } catch (error) {
-      console.error('Error during bulk write operations:', error);
+    } else {
+      console.log('No bulk operations to execute. Inverted index is empty.');
     }
   } catch (error) {
     console.error('Error building inverted index:', error);
@@ -150,24 +133,24 @@ async function buildInvertedIndex(): Promise<void> {
 
 export default buildInvertedIndex;
 
-
 async function getTermsFromDB() {
-    try {
-      const terms = await InvertedIndex.find().select('term documentFrequency postings');
-      console.log('Retrieved terms from database:', terms);
-  
-      
-      const formattedTerms = terms.map((term) => ({
-        term: term.term,
-        documentFrequency: term.documentFrequency,
-        postings: term.postings,
-      }));
-  
-      return formattedTerms; 
-    } catch (error) {
-      console.error('Error retrieving terms from database:', error);
-      throw error; 
-    }
+  try {
+    const terms = await InvertedIndex.find().select(
+      'term documentFrequency postings'
+    );
+    console.log('Retrieved terms from database:', terms);
+
+    const formattedTerms = terms.map((term) => ({
+      term: term.term,
+      documentFrequency: term.documentFrequency,
+      postings: term.postings,
+    }));
+
+    return formattedTerms;
+  } catch (error) {
+    console.error('Error retrieving terms from database:', error);
+    throw error;
   }
-  
-  export { getTermsFromDB };
+}
+
+export { getTermsFromDB };

@@ -22,4 +22,36 @@ function findCollocation(
   return word;
 }
 
+export async function findCollocationsOfPhrase(
+  phrase: string[],
+  collocationsList: string[],
+  stopWordsList: string[]
+) {
+  let usedIndices = new Set<number>();
+  let processedWords: string[] = [];
+
+  // Step 3: Identify collocations
+  for (let i = 0; i < phrase.length; i++) {
+    if (usedIndices.has(i)) continue;
+
+    const word = phrase[i];
+    const result = findCollocation(
+      word,
+      phrase,
+      collocationsList.sort((a, b) => b.length - a.length)
+    );
+
+    if (result && result.includes(' ')) {
+      processedWords.push(result);
+      const collocationLength = result.split(' ').length;
+      for (let j = 0; j < collocationLength; j++) {
+        usedIndices.add(i + j);
+      }
+    } else if (!stopWordsList.includes(word)) {
+      processedWords.push(word);
+    }
+  }
+  return processedWords;
+}
+
 export default findCollocation;
