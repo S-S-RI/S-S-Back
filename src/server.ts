@@ -18,7 +18,6 @@ app.get('/', (req: Request, res: Response) => {
 });
 // app.use('/api/v1', routes);
 app.use('/api/v1', router);
-addThemesToDocuments();
 app.listen(PORT, (error?: Error) => {
   if (error) {
     console.error("Error occurred, server can't start", error);
