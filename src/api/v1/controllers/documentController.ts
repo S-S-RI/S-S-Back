@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { Document } from '../models/documentSchema';
 import Fuse from 'fuse.js';
+import getThemesOfPhrase from '../utils/getThemesOfPhrase';
+import { findCollocationsOfPhrase } from '../utils/collocation';
+import { normaliserEtLemmatiser } from '../utils/normaliser';
+import getCollocationsandStopWords from '../utils/getCollocationsandStopWords';
 export const addDocument = async (
   req: Request,
   res: Response
@@ -11,7 +15,24 @@ export const addDocument = async (
       res.status(400).json({ message: 'content is required.' });
       return;
     }
-    const document = new Document({ content: content, name: name });
+    const [collocationsList, stopWordsList] =
+      await getCollocationsandStopWords();
+
+    let words = await normaliserEtLemmatiser(content);
+    console.log(words);
+
+    let processedWords = await findCollocationsOfPhrase(
+      words,
+      collocationsList,
+      stopWordsList
+    );
+
+    const themes = await getThemesOfPhrase(processedWords);
+    const document = new Document({
+      content: content,
+      name: name,
+      themes: themes,
+    });
     await document.save();
 
     res.status(201).json({ message: 'Document added successfully', document });
@@ -99,19 +120,29 @@ export const deleteDocument = async (
     res.status(500).json({ message: 'Internal server error.' });
   }
 };
-export const addNameFieldToDocuments = async (): Promise<void> => {
+export const addThemesToDocuments = async (): Promise<void> => {
   try {
     const documents = await Document.find();
-
     for (let index = 0; index < documents.length; index++) {
       const document = documents[index];
-      const name = `doc${index + 1}`;
+      const [collocationsList, stopWordsList] =
+        await getCollocationsandStopWords();
 
-      document.name = name;
+      let words = await normaliserEtLemmatiser(document.content);
+      console.log(words);
+
+      let processedWords = await findCollocationsOfPhrase(
+        words,
+        collocationsList,
+        stopWordsList
+      );
+
+      const themes = await getThemesOfPhrase(processedWords);
+
+      document.themes = themes;
+
       await document.save();
     }
-
-    console.log('All documents have been updated with a name field.');
   } catch (error) {
     console.error('Error updating documents:', error);
   }

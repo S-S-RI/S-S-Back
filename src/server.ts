@@ -9,6 +9,7 @@ app.use(express.json());
 import './api/database/database';
 import router from './api/v1/routes';
 import { generateDomainFile } from './api/v1/utils/wordnetHelper';
+import { addThemesToDocuments } from './api/v1/controllers/documentController';
 let corsOptions = {
   origin: '*/*',
 };
@@ -17,7 +18,7 @@ app.get('/', (req: Request, res: Response) => {
 });
 // app.use('/api/v1', routes);
 app.use('/api/v1', router);
-
+addThemesToDocuments();
 app.listen(PORT, (error?: Error) => {
   if (error) {
     console.error("Error occurred, server can't start", error);

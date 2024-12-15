@@ -31,8 +31,11 @@ const searchController = {
       const themes = await getThemesOfPhrase(processedWords);
       // Step 5: Fetch documents dynamically from the database
       const documents = await Document.find({
-        content: { $regex: processedWords.join('|'), $options: 'i' },
-      }).select('content');
+        $or: [
+          { content: { $regex: processedWords.join('|'), $options: 'i' } },
+          { themes: { $in: themes } },
+        ],
+      }).select('content themes');
 
       // Step 6: Calculate  produit scalaire and Rank documents
       const rankedDocuments = [];
