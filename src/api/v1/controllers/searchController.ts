@@ -1,14 +1,11 @@
 import { Request, Response } from 'express';
-import { WordNet } from 'natural';
-import findCollocation from '../utils/collocation';
-import { computeTFIDF } from '../utils/tfidfCalculator';
+import { findCollocationsOfPhrase } from '../utils/collocation';
 import { Document } from '../models/documentSchema';
-import { StopList } from '../models/stoplistSchema';
-import { Collocation } from '../models/collocationSchema';
 import { getDomainsForWord } from '../utils/wordnetHelper';
-import redis from '../../database/redis';
-import { invalidateCache, setCache } from '../utils/cache';
-const wordNet = new WordNet();
+import getCollocationsandStopWords from '../utils/getCollocationsandStopWords';
+import { normaliserEtLemmatiser } from '../utils/normaliser';
+import calculateProduitScalaire from '../utils/produitScalaire';
+import getThemesOfPhrase from '../utils/getThemesOfPhrase';
 
 const searchController = {
   async searchDocuments(req: Request, res: Response) {
@@ -16,90 +13,49 @@ const searchController = {
       const { phrase } = req.body;
 
       // Step 1: Fetch dynamic stop words and collocations from the database
-      let stopWordsList: string[] = [];
-      const cachedstopWords = await redis.get('stopwords:all');
-      if (!cachedstopWords) {
-        const stopWords = await StopList.find().select('content');
-        const stopWordsListLowerCase = stopWords.map((stopWord) =>
-          stopWord.content.toLowerCase()
-        );
-        setCache('stopwords:all', stopWordsListLowerCase);
-        stopWordsList = stopWordsListLowerCase;
-      } else {
-        stopWordsList = JSON.parse(cachedstopWords);
-      }
-
-      let collocationsList: string[] = [];
-      const cachedcollocations = await redis.get('cachedcollocations:all');
-      if (!cachedcollocations) {
-        const collocations = await Collocation.find().select('content');
-        const collocationsListLowerCase = collocations.map((collocation) =>
-          collocation.content.toLowerCase()
-        );
-        setCache('cachedcollocations:all', collocationsListLowerCase);
-        collocationsList = collocationsListLowerCase;
-      } else {
-        collocationsList = JSON.parse(cachedcollocations);
-      }
+      const [collocationsList, stopWordsList] =
+        await getCollocationsandStopWords();
 
       // Step 2: Preprocess the phrase
-      let words = phrase
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .split(' ');
-
-      let usedIndices = new Set<number>();
-      let processedWords: string[] = [];
+      let words = await normaliserEtLemmatiser(phrase);
+      console.log(words);
 
       // Step 3: Identify collocations
-      for (let i = 0; i < words.length; i++) {
-        if (usedIndices.has(i)) continue;
+      let processedWords = await findCollocationsOfPhrase(
+        words,
+        collocationsList,
+        stopWordsList
+      );
 
-        const word = words[i];
-        const result = findCollocation(
-          word,
-          words,
-          collocationsList.sort((a, b) => b.length - a.length)
+      // Step 4: Use WordNet to identify related concepts
+      const themes = await getThemesOfPhrase(processedWords);
+      // Step 5: Fetch documents dynamically from the database
+      const documents = await Document.find({
+        $or: [
+          { content: { $regex: processedWords.join('|'), $options: 'i' } },
+          { themes: { $in: themes } },
+        ],
+      }).select('content themes');
+
+      // Step 6: Calculate  produit scalaire and Rank documents
+      const rankedDocuments = [];
+      for (let doc of documents) {
+        const ProduitScalaire = await calculateProduitScalaire(
+          processedWords,
+          doc._id.toString()
         );
-
-        if (result && result.includes(' ')) {
-          processedWords.push(result);
-          const collocationLength = result.split(' ').length;
-          for (let j = 0; j < collocationLength; j++) {
-            usedIndices.add(i + j);
-          }
-        } else if (!stopWordsList.includes(word)) {
-          processedWords.push(word);
+        if (ProduitScalaire != 0) {
+          rankedDocuments.push({ document: doc, ProduitScalaire });
         }
       }
 
-      processedWords = [...new Set(processedWords)];
-      console.log('Processed Words:', processedWords);
+      rankedDocuments.sort((a, b) => b.ProduitScalaire - a.ProduitScalaire);
 
-      // Step 4: Use WordNet to identify related concepts
-      const themes = [];
-      for (const word of processedWords) {
-        const synsets = await getDomainsForWord(word);
-        const filteredSynsets = synsets.filter((domain) => {
-          return !domain.includes('factotum');
-        });
-        themes.push(filteredSynsets);
-      }
-
-      // Step 5: Fetch documents dynamically from the database
-      const documents = await Document.find().select('content');
-
-      // Convert the documents to the required format (array of string arrays)
-      const docs = documents.map((doc: any) => doc.content.split(' '));
-
-      // Step 6: Compute TF-IDF scores
-      const tfidfScores = computeTFIDF(docs, processedWords);
-      console.log('TF-IDF Scores:', tfidfScores);
-
-      res.status(200).json({ processedWords, themes, tfidfScores });
+      res.status(200).json({
+        processedWords,
+        themes,
+        rankedDocuments: rankedDocuments.slice(0, 5),
+      });
     } catch (error) {
       console.error('Error in searchDocuments:', error);
       res

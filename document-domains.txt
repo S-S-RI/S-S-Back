@@ -1,0 +1,5 @@
+675ec86d4e230dd3f3f0badf	biology plants chemistry
+675ec8954e230dd3f3f0bae1	politics geography administration
+675ec8c34e230dd3f3f0bae3	anthropology psychological_features law
+675ec8ec4e230dd3f3f0bae5	anatomy animals
+675ec9194e230dd3f3f0bae7	plants biology chemistry
