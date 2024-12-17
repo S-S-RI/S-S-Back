@@ -28,3 +28,4 @@ documentRouter.get('/terms', async (req, res) => {
 });
 
 export default documentRouter;
+
