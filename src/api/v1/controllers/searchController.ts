@@ -5,7 +5,7 @@ import { getDomainsForWord } from '../utils/wordnetHelper';
 import getCollocationsandStopWords from '../utils/getCollocationsandStopWords';
 import { normaliserEtLemmatiser } from '../utils/normaliser';
 import calculateProduitScalaire from '../utils/produitScalaire';
-import getThemesOfPhrase from '../utils/getThemesOfPhrase';
+import getThemesOfPhrase from '../utils/getThemePrincipal';
 
 const searchController = {
   async searchDocuments(req: Request, res: Response) {
@@ -28,33 +28,53 @@ const searchController = {
       );
 
       // Step 4: Use WordNet to identify related concepts
-      const themes = await getThemesOfPhrase(processedWords);
+      const { themePrincipal, motsConcordants } = await getThemesOfPhrase(
+        processedWords
+      );
       // Step 5: Fetch documents dynamically from the database
       const documents = await Document.find({
         $or: [
-          { content: { $regex: processedWords.join('|'), $options: 'i' } },
-          { themes: { $in: themes } },
+          { content: { $regex: motsConcordants.join('|'), $options: 'i' } },
+          { themes: { $in: [themePrincipal, ...motsConcordants] } },
         ],
       }).select('content themes');
 
       // Step 6: Calculate  produit scalaire and Rank documents
       const rankedDocuments = [];
+      const zeroProduitDocuments = [];
+
       for (let doc of documents) {
         const ProduitScalaire = await calculateProduitScalaire(
-          processedWords,
+          motsConcordants,
           doc._id.toString()
         );
-        if (ProduitScalaire != 0) {
+        if (ProduitScalaire !== 0) {
           rankedDocuments.push({ document: doc, ProduitScalaire });
+        } else {
+          zeroProduitDocuments.push({ document: doc, ProduitScalaire });
         }
       }
 
+      const sortedZeroProduitDocuments = zeroProduitDocuments.sort((a, b) => {
+        const indexA = a.document.themes.indexOf(themePrincipal);
+        const indexB = b.document.themes.indexOf(themePrincipal);
+
+        if (indexA === -1) return 1;
+        if (indexB === -1) return -1;
+        return indexA - indexB;
+      });
+
       rankedDocuments.sort((a, b) => b.ProduitScalaire - a.ProduitScalaire);
+
+      const finalRankedDocuments = [
+        ...rankedDocuments,
+        ...sortedZeroProduitDocuments,
+      ];
 
       res.status(200).json({
         processedWords,
-        themes,
-        rankedDocuments: rankedDocuments.slice(0, 5),
+        themePrincipal,
+        rankedDocuments: finalRankedDocuments,
       });
     } catch (error) {
       console.error('Error in searchDocuments:', error);
