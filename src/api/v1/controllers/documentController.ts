@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { Document } from '../models/documentSchema';
 import Fuse from 'fuse.js';
-import getThemesOfPhrase from '../utils/getThemesOfPhrase';
 import { findCollocationsOfPhrase } from '../utils/collocation';
 import { normaliserEtLemmatiser } from '../utils/normaliser';
 import getCollocationsandStopWords from '../utils/getCollocationsandStopWords';
+import getThemesOfPhrase from '../utils/getThemesOfPhrase';
 export const addDocument = async (
   req: Request,
   res: Response
