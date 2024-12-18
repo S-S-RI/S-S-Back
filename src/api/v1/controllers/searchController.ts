@@ -18,14 +18,14 @@ const searchController = {
 
       // Step 2: Preprocess the phrase
       let words = await normaliserEtLemmatiser(phrase);
-      console.log(words);
-
+      const etape1 = `phrase = ${words}`;
       // Step 3: Identify collocations
       let processedWords = await findCollocationsOfPhrase(
         words,
         collocationsList,
         stopWordsList
       );
+      const etape2 = `phrase = ${processedWords}`;
 
       // Step 4: Use WordNet to identify related concepts
       const { themePrincipal, motsConcordants } = await getThemesOfPhrase(
@@ -37,7 +37,7 @@ const searchController = {
           { content: { $regex: motsConcordants.join('|'), $options: 'i' } },
           { themes: { $in: [themePrincipal, ...motsConcordants] } },
         ],
-      }).select('content themes');
+      });
 
       // Step 6: Calculate  produit scalaire and Rank documents
       const rankedDocuments = [];
@@ -70,8 +70,9 @@ const searchController = {
         ...rankedDocuments,
         ...sortedZeroProduitDocuments,
       ];
-
+      const steps = [etape1, etape2];
       res.status(200).json({
+        steps,
         processedWords,
         themePrincipal,
         rankedDocuments: finalRankedDocuments,
